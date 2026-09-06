@@ -1,0 +1,11 @@
+name = "service-hub"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+# D1 数据库绑定：变量名必须是 DB
+# 先执行: npx wrangler d1 create service-hub-db
+# 再把返回的 database_id 填到下面
+[[d1_databases]]
+binding = "DB"
+database_name = "service-hub-db"
+database_id = "06ecf15c-22ea-4542-9db6-1b20ecc7e491"
