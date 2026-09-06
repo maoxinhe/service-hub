@@ -47,10 +47,13 @@ window.WB_ENV = {
   },
   /* 各服务 API 参数：URL=服务前端地址(跳转用) API=接口地址(返回JSON) AUTH=none|bearer|header */
   SERVICES: {
-    downloads: { NAME: "下载站",       URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
-    errors:    { NAME: "错误报告分析", URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
-    tickets:   { NAME: "工单系统",     URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
-    mods:      { NAME: "模组更新平台", URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
+    /* 梦之韵模组包发布系统（releases.camzy.uno）四大能力真实接入：
+       Token 不写在此处 —— Worker 版存于 D1 services 表，由网关 api/proxy/<服务> 注入 Bearer；
+       本地模式可访问公开接口（镜像/模组/最新版本），管理接口需云端模式 */
+    downloads: { NAME: "下载站",       URL: "https://releases.camzy.uno", API: "https://releases.camzy.uno/api/releases/latest", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
+    errors:    { NAME: "错误报告分析", URL: "https://releases.camzy.uno", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
+    tickets:   { NAME: "工单系统",     URL: "https://releases.camzy.uno", API: "https://releases.camzy.uno/api/admin/stats", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
+    mods:      { NAME: "模组更新平台", URL: "https://releases.camzy.uno", API: "https://releases.camzy.uno/api/admin/stats", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
     blog:      { NAME: "个人博客",     URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
     /* Wiki：读接口公开；写接口（新建/编辑/删除）需 Bearer WRITE_KEY —— Worker 版由网关从 D1 注入，无需在此填写；本地模式请在设置中为 Wiki 选 Bearer 并填密钥 */
     wiki:      { NAME: "Wiki",         URL: "https://my-wiki.catkinr-93f.workers.dev", API: "https://my-wiki.catkinr-93f.workers.dev/api/articles", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" }
@@ -748,17 +751,17 @@ function ic(name, size) {
 }
 
 var DEFAULT_MAPPING = {
+  /* 真实接口：GET /api/releases/latest → { release:{tag_name,published_at,assets[]}, state:{currentVersion} } */
   downloads: {
     metrics: [
-      { label: "今日下载", path: "data.stats.today", unit: "次" },
-      { label: "总下载量", path: "data.stats.total", unit: "次" },
-      { label: "资源总数", path: "data.stats.files", unit: "个" }
+      { label: "当前版本", path: "state.currentVersion" },
+      { label: "最新发布", path: "release.tag_name" },
+      { label: "发布时间", path: "release.published_at", format: "time" }
     ],
-    list: { path: "data.items", columns: [
-      { title: "文件名", path: "name" },
-      { title: "大小", path: "size" },
-      { title: "下载量", path: "downloads", format: "num" },
-      { title: "更新时间", path: "date", format: "time" }
+    list: { path: "release.assets", columns: [
+      { title: "下载文件", path: "name" },
+      { title: "大小", path: "size", format: "bytes" },
+      { title: "下载地址", path: "browser_download_url" }
     ]},
     todo: null
   },
@@ -778,35 +781,35 @@ var DEFAULT_MAPPING = {
     ]},
     todo: { listPath: "data.items", titlePath: "error", statusPath: "status", pendingValue: "未处理", datePath: "last_seen" }
   },
+  /* 真实接口：GET /api/admin/stats → { stats:{tickets,pendingTickets,...}, recentTickets:[{id,nickname,gamename,status,createdAt}] } */
   tickets: {
     metrics: [
-      { label: "待处理", path: "data.stats.open", unit: "单" },
-      { label: "已逾期", path: "data.stats.overdue", unit: "单" },
-      { label: "累计工单", path: "data.stats.total", unit: "单" }
+      { label: "累计工单", path: "stats.tickets", unit: "单" },
+      { label: "待处理", path: "stats.pendingTickets", unit: "单" },
+      { label: "收录模组", path: "stats.mods", unit: "个" }
     ],
-    list: { path: "data.items", columns: [
+    list: { path: "recentTickets", columns: [
       { title: "编号", path: "id" },
-      { title: "标题", path: "title" },
-      { title: "提交人", path: "user" },
-      { title: "优先级", path: "priority", format: "badge" },
+      { title: "玩家", path: "nickname" },
+      { title: "游戏名", path: "gamename" },
       { title: "状态", path: "status", format: "badge" },
-      { title: "创建时间", path: "created_at", format: "time" }
+      { title: "创建时间", path: "createdAt", format: "time" }
     ]},
-    todo: { listPath: "data.items", titlePath: "title", statusPath: "status", pendingValue: "待处理", datePath: "created_at" }
+    todo: { listPath: "recentTickets", titlePath: "nickname", statusPath: "status", pendingValue: "new", datePath: "createdAt" }
   },
+  /* 真实接口：GET /api/admin/stats → { stats:{mods,releases,pendingTickets,currentVersion}, recentReleases:[{name,published_at}] } */
   mods: {
     metrics: [
-      { label: "待审核", path: "data.stats.pending", unit: "个" },
-      { label: "已发布版本", path: "data.stats.published", unit: "个" },
-      { label: "收录模组", path: "data.stats.total_mods", unit: "个" }
+      { label: "收录模组", path: "stats.mods", unit: "个" },
+      { label: "已发布版本", path: "stats.releases", unit: "个" },
+      { label: "待处理工单", path: "stats.pendingTickets", unit: "单" },
+      { label: "当前版本", path: "stats.currentVersion" }
     ],
-    list: { path: "data.items", columns: [
-      { title: "模组", path: "name" },
-      { title: "版本", path: "version" },
-      { title: "状态", path: "status", format: "badge" },
-      { title: "提交时间", path: "date", format: "time" }
+    list: { path: "recentReleases", columns: [
+      { title: "版本", path: "name" },
+      { title: "发布时间", path: "published_at", format: "time" }
     ]},
-    todo: { listPath: "data.items", titlePath: "name", statusPath: "status", pendingValue: "待审核", datePath: "date" }
+    todo: null
   },
   blog: {
     metrics: [
@@ -840,10 +843,10 @@ var DEFAULT_MAPPING = {
 };
 
 var SVC_DEFS = [
-  { id: "downloads", name: "下载站", icon: "downloads", desc: "资源下载统计与热门文件" },
-  { id: "errors",    name: "错误报告分析", icon: "errors", desc: "崩溃与异常聚合分析" },
-  { id: "tickets",   name: "工单系统", icon: "tickets", desc: "用户工单跟踪与响应" },
-  { id: "mods",      name: "模组更新平台", icon: "mods", desc: "模组版本审核与发布" },
+  { id: "downloads", name: "下载站", icon: "downloads", desc: "梦之韵模组包 · 最新版本与多线路镜像下载" },
+  { id: "errors",    name: "错误报告分析", icon: "errors", desc: "崩溃报告 AI 分析结果查询（报告经邮件发送）" },
+  { id: "tickets",   name: "工单系统", icon: "tickets", desc: "玩家工单处理：回复 / AI 草稿 / 关闭 / 删除" },
+  { id: "mods",      name: "模组更新平台", icon: "mods", desc: "模组包管理：一键发布 / 版本记录 / 模组清单" },
   { id: "blog",      name: "个人博客", icon: "blog", desc: "文章数据与近期发布" },
   { id: "wiki",      name: "Wiki", icon: "wiki", desc: "知识库文章管理：浏览 + 新建 / 编辑 / 删除" }
 ];
@@ -895,32 +898,40 @@ function buildDemoData() {
   var now = Date.now(), H = 3600e3, D = 24 * H;
   function ago(ms) { return now - ms; }
   return {
-    downloads: { data: { stats: { today: 128, total: 45230, files: 86 }, items: [
-      { name: "光影优化整合包 v3.2", size: "86.4 MB", downloads: 3821, date: ago(2 * D) },
-      { name: "性能增强模组包 v1.8", size: "24.6 MB", downloads: 2957, date: ago(3 * D) },
-      { name: "材质包·像素复兴 4K", size: "512 MB", downloads: 1863, date: ago(5 * D) },
-      { name: "地图·天空之城重制版", size: "45.2 MB", downloads: 1240, date: ago(6 * D) },
-      { name: "服务器基础插件合集", size: "12.8 MB", downloads: 987, date: ago(8 * D) }
-    ]}},
+    downloads: { release: { tag_name: "v1.0.10", name: "梦之韵模组包 v1.0.10", published_at: "2026-09-05T08:57:16Z",
+        html_url: "https://github.com/maoxinhe/modpack/releases/tag/v1.0.10",
+        assets: [ { name: "modpack.zip", browser_download_url: "https://github.com/maoxinhe/modpack/releases/latest/download/modpack.zip", size: 69996671 } ] },
+      state: { currentVersion: "1.0.10", lastReleaseTag: "v1.0.10" },
+      mirrors: [
+        { name: "GitHub 源站", url: "https://github.com/maoxinhe/modpack/releases/latest/download/modpack.zip" },
+        { name: "gh-proxy.com", url: "https://gh-proxy.com/https://github.com/maoxinhe/modpack/releases/latest/download/modpack.zip" },
+        { name: "ghfast.top", url: "https://ghfast.top/https://github.com/maoxinhe/modpack/releases/latest/download/modpack.zip" }
+      ] },
     errors: { data: { stats: { total: 23, unresolved: 5, critical: 2 }, items: [
       { id: "ERR-1042", error: "NullPointerException at ModLoader.init()", level: "critical", count: 47, status: "未处理", last_seen: ago(2 * H) },
       { id: "ERR-1039", error: "Chunk load timeout (region r.3.-1.mca)", level: "critical", count: 12, status: "未处理", last_seen: ago(9 * H) },
       { id: "ERR-1036", error: "Texture atlas overflow: 1024x1024 exceeded", level: "warning", count: 156, status: "已处理", last_seen: ago(2 * D) },
       { id: "ERR-1031", error: "Packet 0x2F malformed from client v1.2.0", level: "warning", count: 89, status: "已处理", last_seen: ago(3 * D) }
     ]}},
-    tickets: { data: { stats: { total: 38, open: 6, overdue: 1 }, items: [
-      { id: "T-2091", title: "安装整合包后启动闪退", user: "玩家_清风", priority: "高", status: "待处理", created_at: ago(3 * D) },
-      { id: "T-2095", title: "下载页验证码无法显示", user: "玩家_Momo", priority: "中", status: "待处理", created_at: ago(5 * H) },
-      { id: "T-2090", title: "模组兼容性问题导致掉线", user: "玩家_Kiro", priority: "中", status: "处理中", created_at: ago(1 * D) },
-      { id: "T-2087", title: "捐赠后未收到会员标识", user: "玩家_Alice", priority: "低", status: "已完成", created_at: ago(4 * D) },
-      { id: "T-2085", title: "建议增加历史版本下载", user: "玩家_Bob", priority: "低", status: "已完成", created_at: ago(5 * D) }
-    ]}},
-    mods: { data: { stats: { total_mods: 12, pending: 1, published: 38 }, items: [
-      { name: "动态光影增强", version: "2.1.0", status: "待审核", date: ago(1 * D) },
-      { name: "背包扩展 Plus", version: "1.4.2", status: "已发布", date: ago(2 * D) },
-      { name: "小地图 Radar", version: "3.0.1", status: "已发布", date: ago(4 * D) },
-      { name: "一键整理 Inventoria", version: "0.9.5", status: "已发布", date: ago(6 * D) }
-    ]}},
+    tickets: { stats: { mods: 40, releases: 9, tickets: 10, pendingTickets: 2, currentVersion: "1.0.10", lastReleaseTag: "v1.0.10" },
+      recentTickets: [
+        { id: "T20260906-143025123", nickname: "玩家_清风", gamename: "梦之韵", status: "new", createdAt: ago(5 * H) },
+        { id: "T20260905-111741502", nickname: "玩家_Momo", gamename: "Voidcraft", status: "auto", createdAt: ago(1 * D) },
+        { id: "T20260904-093015221", nickname: "玩家_Kiro", gamename: "梦之韵", status: "replied", createdAt: ago(2 * D) },
+        { id: "T20260902-181042903", nickname: "玩家_Alice", gamename: "梦之韵", status: "closed", createdAt: ago(4 * D) }
+      ]},
+    mods: { stats: { mods: 40, releases: 9, tickets: 10, pendingTickets: 0, currentVersion: "1.0.10", lastReleaseTag: "v1.0.10" },
+      recentReleases: [
+        { id: 383191859, name: "梦之韵模组包 v1.0.10", published_at: "2026-09-05T08:57:16Z" },
+        { id: 383062716, name: "梦之韵模组包 v1.0.9", published_at: "2026-09-04T23:26:56Z" },
+        { id: 383058227, name: "梦之韵模组包 v1.0.8", published_at: "2026-09-04T23:09:40Z" },
+        { id: 379299122, name: "梦之韵模组包 v1.0.7", published_at: "2026-08-30T14:03:17Z" }
+      ],
+      modsList: [
+        { name: "[机械动力] create-1.21.1-6.0.10.jar", size: 19123767 },
+        { name: "[储物抽屉] StorageDrawers-neoforge-1.21.1-13.11.4.jar", size: 1131420 },
+        { name: "[优化] Tweakerge-1.21.1-1.2.jar", size: 894561 }
+      ]},
     blog: { data: { stats: { posts: 57, comments: 214, views: 89210 }, items: [
       { title: "服务器一周年：数据与回顾", views: 1203, comments: 18, date: ago(2 * D) },
       { title: "模组开发入门（三）：网络包同步", views: 986, comments: 12, date: ago(5 * D) },
@@ -944,7 +955,13 @@ var state = {
   api: {},           // svcId -> {ok, loading, data, error, ts}（运行时，不持久化）
   view: "overview",
   todayOpen: true,
-  wiki: { mode: "new", link: "", form: null }  // wiki 内容管理：mode=new|edit，link=编辑目标，form=表单值（防重渲染丢失）
+  wiki: { mode: "new", link: "", form: null },  // wiki 内容管理：mode=new|edit，link=编辑目标，form=表单值（防重渲染丢失）
+  mzy: {   // 梦之韵管理模块状态：工单处理 / 一键发布 / 镜像与模组清单 / 报告查询
+    tsel: "", tdetail: null, tloading: false, reply: "",
+    pubMsg: "",
+    mirrors: null, modsList: null,
+    erId: "", erTok: "", erResult: null, erLoading: false, erError: ""
+  }
 };
 var pollTimer = null;
 
@@ -984,6 +1001,14 @@ function mergeConfig(saved) {
       if (wm && wm.path === "data.stats.pages") svc.advanced = DEFAULT_MAPPING.wiki;
       if (!svc.baseUrl && (window.WB_ENV.SERVICES.wiki || {}).API) svc.baseUrl = window.WB_ENV.SERVICES.wiki.API;
       if (!svc.url && (window.WB_ENV.SERVICES.wiki || {}).URL) svc.url = window.WB_ENV.SERVICES.wiki.URL;
+    }
+    /* 迁移：梦之韵四大服务接入 releases.camzy.uno —— 旧演示映射/空地址自动补齐 */
+    if (["downloads", "tickets", "mods"].indexOf(svc.id) >= 0) {
+      var dm = svc.advanced && svc.advanced.metrics && svc.advanced.metrics[0];
+      if (dm && /^data\.stats\./.test(dm.path)) svc.advanced = DEFAULT_MAPPING[svc.id];
+      var envS = window.WB_ENV.SERVICES[svc.id] || {};
+      if (!svc.baseUrl && envS.API) svc.baseUrl = envS.API;
+      if (!svc.url && envS.URL) svc.url = envS.URL;
     }
     return svc;
   });
@@ -1190,6 +1215,14 @@ function fmtTime(v) {
   var p = function (n) { return n < 10 ? "0" + n : "" + n; };
   return (d.getMonth() + 1) + "月" + d.getDate() + "日 " + p(d.getHours()) + ":" + p(d.getMinutes());
 }
+function fmtBytes(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n < 0) return "—";
+  if (n >= 1073741824) return (n / 1073741824).toFixed(2) + " GB";
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+  return n + " B";
+}
 function startOfToday() { var d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function getApiData(svc) {
   var c = state.api[svc.id];
@@ -1208,12 +1241,17 @@ var STATUS_TEXT = { ok: "已连接", demo: "演示数据", error: "连接失败"
 function badgeFor(v) {
   var map = {
     "critical": "b-red", "严重": "b-red", "高": "b-red", "紧急": "b-red", "未处理": "b-red", "连接失败": "b-red",
-    "待处理": "b-orange", "待审核": "b-orange", "warning": "b-orange", "中": "b-orange", "顺延": "b-orange", "演示数据": "b-orange",
-    "处理中": "b-blue", "进行中": "b-blue", "同步中": "b-blue",
-    "已完成": "b-green", "已发布": "b-green", "已处理": "b-green", "已解决": "b-green", "已连接": "b-green",
-    "未接入": "b-gray"
+    "new": "b-red", "待处理": "b-orange", "待审核": "b-orange", "warning": "b-orange", "中": "b-orange", "顺延": "b-orange", "演示数据": "b-orange",
+    "处理中": "b-blue", "进行中": "b-blue", "同步中": "b-blue", "auto": "b-blue", "AI已回复": "b-blue", "processing": "b-blue", "queued": "b-blue",
+    "已完成": "b-green", "已发布": "b-green", "已处理": "b-green", "已解决": "b-green", "已连接": "b-green", "replied": "b-green", "done": "b-green",
+    "未接入": "b-gray", "closed": "b-gray", "已关闭": "b-gray"
   };
   return map[String(v)] || "b-gray";
+}
+/* 工单/报告状态 → 中文显示 */
+function statusText(v) {
+  return { "new": "新工单", "auto": "AI已回复", "replied": "已回复", "closed": "已关闭",
+    "queued": "排队中", "processing": "分析中", "done": "分析完成", "error": "分析失败" }[String(v)] || String(v);
 }
 
 /* 「今天要处理」聚合：本地待办 + 服务待处理项提取 */
@@ -1253,7 +1291,7 @@ function collectTodayItems() {
       items.push({
         kind: "svc", svcId: svc.id,
         title: String(getPath(it, todo.titlePath) || "(未命名)"),
-        meta: svc.name + " · " + String(st) + (valid ? " · " + fmtTime(dv) : ""),
+        meta: svc.name + " · " + statusText(st) + (valid ? " · " + fmtTime(dv) : ""),
         level: overdue ? "overdue" : "today"
       });
     });
@@ -1497,8 +1535,9 @@ function renderService() {
       body += '<div class="metric-grid">';
       mets.forEach(function (m) {
         var v = getPath(src.data, m.path);
+        var mv = m.format === "time" ? fmtTime(v) : fmtNum(v);
         var warn = /未处理|逾期|待处理|待审核|严重|失败/.test(m.label || "") && typeof v === "number" && v > 0;
-        body += '<div class="card metric-card' + (warn ? " warn" : "") + '"><div class="v">' + esc(fmtNum(v)) +
+        body += '<div class="card metric-card' + (warn ? " warn" : "") + '"><div class="v">' + esc(mv) +
           (m.unit ? '<span class="u">' + esc(m.unit) + "</span>" : "") + '</div><div class="l">' + esc(m.label) + "</div></div>";
       });
       body += "</div>";
@@ -1516,7 +1555,8 @@ function renderService() {
           var lab = ' data-label="' + esc(c.title) + '"';
           var cell;
           if (c.format === "num") cell = '<td class="num"' + lab + ">" + esc(fmtNum(v)) + "</td>";
-          else if (c.format === "badge") { var bv = Array.isArray(v) ? v.join("、") : v; cell = "<td" + lab + '><span class="badge ' + badgeFor(bv) + '">' + esc(bv === undefined || bv === null || bv === "" ? "—" : bv) + "</span></td>"; }
+          else if (c.format === "bytes") cell = '<td class="num"' + lab + ">" + esc(fmtBytes(v)) + "</td>";
+          else if (c.format === "badge") { var bv = Array.isArray(v) ? v.join("、") : v; bv = statusText(bv); cell = "<td" + lab + '><span class="badge ' + badgeFor(bv) + '">' + esc(bv === undefined || bv === null || bv === "" ? "—" : bv) + "</span></td>"; }
           else if (c.format === "time") cell = "<td" + lab + ">" + esc(fmtTime(v)) + "</td>";
           else cell = "<td" + lab + ">" + esc(v === undefined || v === null || v === "" ? "—" : v) + "</td>";
           t += cell;
@@ -1535,6 +1575,12 @@ function renderService() {
     }
   }
   if (svc.id === "wiki" && svc.baseUrl && !loading) body += wikiAdminHtml(svc, src);
+  if (!loading) {
+    if (svc.id === "tickets") body += mzyTicketAdminHtml();
+    if (svc.id === "mods") body += mzyModsAdminHtml();
+    if (svc.id === "downloads") body += mzyDlInfoHtml(svc);
+    if (svc.id === "errors") body += mzyErQueryHtml();
+  }
   box.innerHTML = head + body;
 }
 
@@ -1670,6 +1716,241 @@ function wikiSyncForm(e) {
   if (field === "link") { wikiStartEdit(el.value); return; }
   if (!state.wiki.form) state.wiki.form = wikiFormDefault();
   state.wiki.form[field] = el.value;
+}
+
+/* ---------- 梦之韵模组包发布系统（releases.camzy.uno）管理模块 ----------
+   读：网关转发公开接口；写：网关注入 D1 中的 Bearer Token，前端零接触
+   渲染函数均为纯模板（无副作用），数据获取由事件/初始化层触发 */
+function mzyWrite(auxId, method, path, bodyObj) {
+  if (RUNTIME.mode !== "server") return Promise.reject(new Error("管理操作需云端模式（部署 Worker 后由网关注入 Token）"));
+  var body = bodyObj === null ? undefined : JSON.stringify(bodyObj);
+  var h = { "Authorization": "Bearer " + sessionToken() };
+  if (body) h["Content-Type"] = "application/json";
+  return fetch("api/proxy/" + auxId + (path || ""), { method: method, headers: h, body: body })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+    .then(function (res) {
+      if (res.status >= 400 || !res.j || res.j.ok === false) throw new Error((res.j && res.j.error) || "HTTP " + res.status);
+      return res.j;
+    });
+}
+/* 辅助数据拉取（镜像/模组清单/工单完整列表）：数据层 → state → 统一刷新
+   与 fetchService 同语义：server 模式下真实 API 优先，demo 数据仅作未连接时兜底 */
+function mzyFetchAux(auxId, key, silent) {
+  if (RUNTIME.mode !== "server") return Promise.resolve();
+  return mzyWrite(auxId, "GET", "", null)
+    .then(function (j) { state.mzy[key] = j; if (!silent) refreshAll(); })
+    .catch(function (err) { if (!silent) showToast((key === "mirrors" ? "镜像" : key === "modsList" ? "模组清单" : "工单列表") + "获取失败：" + err.message, "err"); });
+}
+function mzyFetchAllAux(silent) {
+  mzyFetchAux("dl_mirrors", "mirrors", silent);
+  mzyFetchAux("dl_mods", "modsList", silent);
+  mzyFetchAux("tickets_list", "tlist", true);
+}
+/* 纯模板：工单管理卡（选中 → 详情 → 回复 / AI 草稿 / 关闭 / 重开 / 删除） */
+function mzyTicketAdminHtml() {
+  var m = state.mzy;
+  var local = RUNTIME.mode !== "server";
+  var demo = state.config.demoMode;
+  var head = '<div class="card wiki-admin"><div class="wa-head">' + ic("tickets", 16) + "<b>工单管理</b>" +
+    '<span class="grow"></span><button class="btn small" data-action="mzy-trefresh">' + ic("refresh", 14) + "刷新列表</button></div>" +
+    '<div class="note">' + (local ? "本地模式仅可查看公开数据，工单管理需部署 Worker（云端模式）后使用。"
+      : "回复将通过邮件通知玩家；「AI 草稿」基于 Wiki 知识库生成。" + (demo ? "若 API 尚未连上，下方列表为演示数据，请勿执行写操作。" : "")) + "</div>";
+  if (local) return head + "</div>";
+  var list = (m.tlist && m.tlist.tickets) || (demo ? (state.demo.tickets && state.demo.tickets.recentTickets) || [] : []);
+  var opts = '<option value="">— 选择要处理的工单 —</option>';
+  list.forEach(function (t) {
+    opts += '<option value="' + esc(t.id) + '"' + (m.tsel === t.id ? " selected" : "") + ">" +
+      esc(t.id + " · " + (t.nickname || "?") + " · " + statusText(t.status)) + "</option>";
+  });
+  var d = m.tdetail && m.tdetail.ticket;
+  var detail = "";
+  if (m.tloading) detail = '<div class="note">正在加载工单详情…</div>';
+  else if (d) {
+    var replies = (d.replies || []).map(function (r) {
+      var mine = r.from === "admin";
+      return '<div class="wa-label" style="margin-bottom:2px">' + (mine ? "管理员回复" : "玩家留言") + " · " + esc(fmtTime(r.at)) + "</div>" +
+        '<div class="note" style="white-space:pre-wrap">' + esc(r.content) + "</div>";
+    }).join("");
+    detail = '<div class="wa-grid"><div><label class="wa-label">玩家</label><div class="note">' + esc(d.nickname || "—") + "（游戏名：" + esc(d.gamename || "—") + "）</div></div>" +
+      '<div><label class="wa-label">邮箱 / 状态</label><div class="note">' + esc(d.email || "—") + " · " +
+      '<span class="badge ' + badgeFor(d.status) + '">' + esc(statusText(d.status)) + "</span></div></div></div>" +
+      '<label class="wa-label">工单内容（' + esc(fmtTime(d.createdAt)) + "）</label>" +
+      '<div class="note" style="white-space:pre-wrap">' + esc(d.content || "—") + "</div>" +
+      (replies ? '<label class="wa-label">往来回复</label>' + replies : "") +
+      '<label class="wa-label">回复内容（发送后邮件通知玩家）</label>' +
+      '<textarea class="wa-input" rows="5" data-mfield="reply" placeholder="填写回复内容…">' + esc(m.reply || "") + "</textarea>" +
+      '<div class="wa-actions">' +
+      '<button class="btn primary" data-action="mzy-treply">' + ic("out", 14) + "发送回复</button>" +
+      '<button class="btn" data-action="mzy-tai">' + ic("wiki", 14) + "AI 草稿</button>" +
+      (d.status === "closed" ? '<button class="btn" data-action="mzy-treopen">重新打开</button>' : '<button class="btn" data-action="mzy-tclose">关闭工单</button>') +
+      '<button class="btn danger" data-action="mzy-tdel">删除工单</button>' +
+      "</div>";
+  }
+  return head +
+    '<label class="wa-label">选择工单（' + list.length + " 条）</label>" +
+    '<select class="wa-input" data-mfield="tsel">' + opts + "</select>" + detail + "</div>";
+}
+/* 纯模板：一键发布 + 模组清单 */
+function mzyModsAdminHtml() {
+  var m = state.mzy;
+  var local = RUNTIME.mode !== "server";
+  var demo = state.config.demoMode;
+  var head = '<div class="card wiki-admin"><div class="wa-head">' + ic("mods", 16) + "<b>模组包发布</b>" +
+    '<span class="grow"></span><button class="btn small" data-action="mzy-mrefresh">' + ic("refresh", 14) + "刷新清单</button></div>" +
+    '<div class="note">' + (local ? "本地模式仅可查看公开清单，发布需部署 Worker（云端模式）后使用。"
+      : "发布将打包当前全部模组、自动递增版本号并创建 GitHub Release（modpack.zip / 更新器）。" + (demo ? "清单未连上 API 时显示为演示数据。" : "")) + "</div>";
+  var pub = "";
+  if (!local) {
+    pub = '<label class="wa-label">发布说明（可选，≤500 字）</label>' +
+      '<textarea class="wa-input" rows="3" data-mfield="pubMsg" placeholder="本次更新内容…">' + esc(m.pubMsg || "") + "</textarea>" +
+      '<div class="wa-actions"><button class="btn primary" data-action="mzy-publish">' + ic("export", 14) + "打包发布新版本</button></div>";
+  }
+  var mods = (m.modsList && m.modsList.mods) || (state.demo.mods && state.demo.mods.modsList) || [];
+  var rows = mods.slice(0, 12).map(function (x) {
+    return "<tr><td>" + esc(x.name) + '</td><td class="num">' + esc(fmtBytes(x.size)) + "</td></tr>";
+  }).join("");
+  var tbl = mods.length ? '<label class="wa-label">模组清单（共 ' + mods.length + " 个，显示前 12）</label>" +
+    '<div class="tbl-wrap"><table><thead><tr><th>文件名</th><th>大小</th></tr></thead><tbody>' + rows + "</tbody></table>" +
+    (mods.length > 12 ? '<div class="note">仅显示前 12 个模组</div>' : "") + "</div>" : "";
+  return head + pub + tbl + "</div>";
+}
+/* 纯模板：下载信息卡（镜像多线路 + 一键复制） */
+function mzyDlInfoHtml(svc) {
+  var m = state.mzy;
+  var local = RUNTIME.mode !== "server";
+  var mirrors = (m.mirrors && m.mirrors.mirrors) || (local ? [] : (state.demo.downloads && state.demo.downloads.mirrors) || []);
+  var head = '<div class="card wiki-admin"><div class="wa-head">' + ic("out", 16) + "<b>镜像加速下载</b>" +
+    '<span class="grow"></span><button class="btn small" data-action="mzy-drefresh">' + ic("refresh", 14) + "刷新镜像</button></div>" +
+    '<div class="note">' + (local ? "本地模式：镜像列表由服务端网关获取，云端模式可用。" : "点击「复制」获取镜像直链；GitHub 源站在国内可能较慢，推荐使用镜像。") + "</div>";
+  if (!mirrors.length) return head + "</div>";
+  var rows = mirrors.map(function (x, i) {
+    return '<div class="wa-actions" style="margin:0 0 6px;padding:0">' +
+      '<span class="badge b-blue" style="align-self:center">' + esc(x.name) + "</span>" +
+      '<span class="note grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(x.url) + "</span>" +
+      '<button class="btn small" data-action="mzy-copy" data-url="' + esc(x.url) + '">复制</button></div>';
+  }).join("");
+  return head + rows + "</div>";
+}
+/* 纯模板：错误报告查询卡（report_id + poll token → 分析结果） */
+function mzyErQueryHtml() {
+  var m = state.mzy;
+  var local = RUNTIME.mode !== "server";
+  var head = '<div class="card wiki-admin"><div class="wa-head">' + ic("errors", 16) + "<b>分析报告查询</b></div>" +
+    '<div class="note">' + (local ? "查询经服务端网关转发，需云端模式。"
+      : "上传接口的响应含 report_id 与 poll.token（或玩家向你提供），粘贴后查询 AI 分析进度与结果。报告完成后也会自动生成工单并邮件发送。") + "</div>";
+  if (local) return head + "</div>";
+  var r = m.erResult;
+  var result = "";
+  if (m.erLoading) result = '<div class="note">正在查询…</div>';
+  else if (m.erError) result = '<div class="note" style="color:var(--red-t)">查询失败：' + esc(m.erError) + "</div>";
+  else if (r && r.report_id) {
+    result = '<label class="wa-label">报告 ' + esc(r.report_id) + ' · <span class="badge ' + badgeFor(r.status) + '">' + esc(statusText(r.status)) + "</span>" +
+      (r.ticket_id ? " · 已生成工单 " + esc(r.ticket_id) : "") + "</label>" +
+      (r.result ? '<div class="note" style="white-space:pre-wrap;max-height:420px;overflow-y:auto">' + esc(r.result) + "</div>" : '<div class="note">暂无分析结果，请稍后刷新重试。</div>');
+  }
+  return head +
+    '<div class="wa-grid"><div><label class="wa-label">报告 ID</label><input class="wa-input" data-mfield="erId" placeholder="如 ERMTNLXZQ4BAEA165D" value="' + esc(m.erId || "") + '"></div>' +
+    '<div><label class="wa-label">poll.token</label><input class="wa-input" data-mfield="erTok" placeholder="上传响应中的 token" value="' + esc(m.erTok || "") + '"></div></div>' +
+    '<div class="wa-actions"><button class="btn primary" data-action="mzy-erquery">' + ic("refresh", 14) + "查询分析结果</button></div>" + result + "</div>";
+}
+
+/* 事件层：工单处理（选中/回复/AI/关闭/重开/删除），操作后同步详情与列表 */
+function mzyTicketOpen(id) {
+  var m = state.mzy;
+  m.tsel = id || ""; m.tdetail = null; m.reply = "";
+  if (!id) { refreshAll(); return; }
+  m.tloading = true; refreshAll();
+  mzyWrite("tickets_list", "GET", "/" + encodeURIComponent(id), null)
+    .then(function (j) { m.tdetail = j; m.tloading = false; refreshAll(); })
+    .catch(function (err) { m.tloading = false; showToast("工单详情获取失败：" + err.message, "err"); refreshAll(); });
+}
+function mzyTicketRefresh() {
+  state.mzy.tsel = ""; state.mzy.tdetail = null; state.mzy.reply = "";
+  mzyFetchAux("tickets_list", "tlist");
+}
+function mzyTicketReply() {
+  var m = state.mzy, id = m.tsel;
+  var text = String(m.reply || "").trim();
+  if (!id || !m.tdetail) { showToast("请先选择工单", "err"); return; }
+  if (!text) { showToast("回复内容不能为空", "err"); return; }
+  confirmDialog("回复工单", "将回复 " + id + " 并邮件通知玩家。确定发送？", function () {
+    showToast("正在发送…");
+    mzyWrite("tickets_list", "POST", "/" + encodeURIComponent(id) + "/reply", { content: text })
+      .then(function () { m.reply = ""; showToast("已回复并通知玩家", "good"); return mzyWrite("tickets_list", "GET", "/" + encodeURIComponent(id), null); })
+      .then(function (j) { m.tdetail = j; refreshAll(); mzyFetchAux("tickets_list", "tlist", true); })
+      .catch(function (err) { showToast("回复失败：" + err.message, "err"); });
+  });
+}
+function mzyTicketAI() {
+  var m = state.mzy, id = m.tsel;
+  if (!id || !m.tdetail) { showToast("请先选择工单", "err"); return; }
+  showToast("正在基于知识库生成草稿…");
+  mzyWrite("tickets_list", "POST", "/" + encodeURIComponent(id) + "/ai", {})
+    .then(function (j) {
+      m.reply = (j.draft || "").trim();
+      if (!m.reply) throw new Error("AI 未返回草稿");
+      showToast("草稿已填入，可修改后发送", "good"); refreshAll();
+    })
+    .catch(function (err) { showToast("AI 草稿失败：" + err.message, "err"); });
+}
+function mzyTicketSetStatus(reopen) {
+  var m = state.mzy, id = m.tsel;
+  if (!id || !m.tdetail) { showToast("请先选择工单", "err"); return; }
+  confirmDialog(reopen ? "重新打开工单" : "关闭工单", "将把 " + id + (reopen ? " 重新置为待处理" : " 置为已关闭") + (reopen ? "。" : "，并邮件通知玩家。"), function () {
+    showToast("正在操作…");
+    mzyWrite("tickets_list", "POST", "/" + encodeURIComponent(id) + (reopen ? "/reopen" : "/close"), {})
+      .then(function () { showToast(reopen ? "已重新打开" : "已关闭工单", "good"); return mzyWrite("tickets_list", "GET", "/" + encodeURIComponent(id), null); })
+      .then(function (j) { m.tdetail = j; refreshAll(); mzyFetchAux("tickets_list", "tlist", true); })
+      .catch(function (err) { showToast("操作失败：" + err.message, "err"); });
+  });
+}
+function mzyTicketDelete() {
+  var m = state.mzy, id = m.tsel;
+  if (!id) { showToast("请先选择工单", "err"); return; }
+  confirmDialog("删除工单", "将永久删除 " + id + "，此操作不可撤销。确定删除？", function () {
+    showToast("正在删除…");
+    mzyWrite("tickets_list", "DELETE", "/" + encodeURIComponent(id), null)
+      .then(function () { m.tsel = ""; m.tdetail = null; m.reply = ""; showToast("已删除工单", "good"); refreshAll(); mzyFetchAux("tickets_list", "tlist", true); })
+      .catch(function (err) { showToast("删除失败：" + err.message, "err"); });
+  });
+}
+/* 事件层：一键发布新版本（自动打包 + bump 版本 + GitHub Release） */
+function mzyPublish() {
+  var m = state.mzy;
+  var msg = String(m.pubMsg || "").trim();
+  confirmDialog("打包发布新版本", "将打包当前全部模组、自动递增版本号并创建 GitHub Release" + (msg ? "（附发布说明）" : "") + "。确定发布？", function () {
+    showToast("正在打包发布，视模组数量可能需要 1-2 分钟…");
+    mzyWrite("mods_pub", "POST", "", msg ? { message: msg } : {})
+      .then(function (j) {
+        m.pubMsg = "";
+        showToast("发布成功" + (j.release && j.release.tag ? "：" + j.release.tag : ""), "good");
+        fetchService("mods", true);
+        mzyFetchAux("dl_mods", "modsList", true);
+      })
+      .catch(function (err) { showToast("发布失败：" + err.message, "err"); });
+  });
+}
+/* 事件层：错误报告分析结果查询 */
+function mzyErQuery() {
+  var m = state.mzy;
+  var id = String(m.erId || "").trim(), tok = String(m.erTok || "").trim();
+  if (!id || !tok) { showToast("报告 ID 与 poll.token 均必填", "err"); return; }
+  if (RUNTIME.mode !== "server") { showToast("查询需云端模式（网关转发）", "err"); return; }
+  m.erResult = null; m.erError = ""; m.erLoading = true; refreshAll();
+  mzyWrite("er_q", "GET", "/" + encodeURIComponent(id) + "?token=" + encodeURIComponent(tok), null)
+    .then(function (j) { m.erResult = j; m.erLoading = false; refreshAll(); })
+    .catch(function (err) { m.erError = err.message; m.erLoading = false; refreshAll(); });
+}
+function mzyCopy(url) {
+  var done = function () { showToast("已复制镜像链接", "good"); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, function () { showToast("复制失败", "err"); });
+  else showToast("浏览器不支持一键复制，请长按链接手动复制", "err");
+}
+/* 表单防丢值：管理卡输入实时同步到 state（与 wikiSyncForm 同模式） */
+function mzySyncForm(e) {
+  var el = e.target.closest ? e.target.closest("[data-mfield]") : null;
+  if (!el) return;
+  state.mzy[el.getAttribute("data-mfield")] = el.value;
 }
 
 /* 统一刷新入口：只调渲染函数，渲染函数之间禁止互调 */
@@ -1966,7 +2247,13 @@ function bindEvents() {
     }
     if (act === "svc-refresh") {
       var sid = el.getAttribute("data-svc");
-      if (sid) fetchService(sid); else fetchAll();
+      if (sid) {
+        fetchService(sid);
+        /* 梦之韵：刷新服务时同步刷新对应辅助数据 */
+        if (sid === "downloads") mzyFetchAux("dl_mirrors", "mirrors");
+        if (sid === "mods") mzyFetchAux("dl_mods", "modsList");
+        if (sid === "tickets") mzyFetchAux("tickets_list", "tlist");
+      } else { fetchAll(); mzyFetchAllAux(); }
       return;
     }
     if (act === "wiki-new" || act === "wiki-cancel") {
@@ -1976,6 +2263,18 @@ function bindEvents() {
     }
     if (act === "wiki-submit") { wikiSubmit(); return; }
     if (act === "wiki-del") { wikiDelete(); return; }
+    /* 梦之韵管理操作 */
+    if (act === "mzy-trefresh") { mzyTicketRefresh(); return; }
+    if (act === "mzy-treply") { mzyTicketReply(); return; }
+    if (act === "mzy-tai") { mzyTicketAI(); return; }
+    if (act === "mzy-tclose") { mzyTicketSetStatus(false); return; }
+    if (act === "mzy-treopen") { mzyTicketSetStatus(true); return; }
+    if (act === "mzy-tdel") { mzyTicketDelete(); return; }
+    if (act === "mzy-publish") { mzyPublish(); return; }
+    if (act === "mzy-erquery") { mzyErQuery(); return; }
+    if (act === "mzy-copy") { mzyCopy(el.getAttribute("data-url") || ""); return; }
+    if (act === "mzy-drefresh") { mzyFetchAux("dl_mirrors", "mirrors"); return; }
+    if (act === "mzy-mrefresh") { mzyFetchAux("dl_mods", "modsList"); return; }
     if (act === "open-settings") {
       state.config.bannerClosed = true; saveConfig();
       fillSettings();
@@ -1986,6 +2285,13 @@ function bindEvents() {
   /* Wiki 内容管理表单：输入实时同步到 state，防止渲染刷新丢值 */
   $("main").addEventListener("input", wikiSyncForm);
   $("main").addEventListener("change", wikiSyncForm);
+  /* 梦之韵管理卡：下拉选择工单 / 表单实时同步 */
+  $("main").addEventListener("change", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-mfield='tsel']") : null;
+    if (el) { mzyTicketOpen(el.value); return; }
+    mzySyncForm(e);
+  });
+  $("main").addEventListener("input", mzySyncForm);
   $("btnTheme").addEventListener("click", cycleTheme);
   $("btnRefresh").addEventListener("click", function () {
     var jobs = state.config.services.filter(function (s) { return s.enabled && s.baseUrl; }).length;
@@ -2236,7 +2542,7 @@ function enterApp() {
   setupPoll();
   refreshAll();
   fetchAll();
-  if (RUNTIME.mode === "server") pullServerState();
+  if (RUNTIME.mode === "server") { pullServerState(); mzyFetchAllAux(true); }
   else if (syncAutoOn() && syncReady()) pullRemote({ silent: true });
 }
 
