@@ -985,6 +985,15 @@ function loadState() {
     saveTodos();
   }
 }
+/* 数据映射规范化：结构无效（空对象/缺 metrics/list）一律回退页面内置默认，
+   防止设置面板保存过 {} 之类的脏映射导致「未取到列表数据」 */
+function normalizeAdvanced(id, adv) {
+  var ok = adv && typeof adv === "object" && !Array.isArray(adv) &&
+    Array.isArray(adv.metrics) && adv.metrics.length > 0 &&
+    adv.list && typeof adv.list.path === "string" && adv.list.path &&
+    Array.isArray(adv.list.columns) && adv.list.columns.length > 0;
+  return ok ? adv : (DEFAULT_MAPPING[id] || adv || null);
+}
 /* 兼容旧配置结构，缺失字段用页面内置配置补齐 */
 function mergeConfig(saved) {
   var base = buildConfigFromEnv();
@@ -995,6 +1004,7 @@ function mergeConfig(saved) {
     if (!found) return bs;
     var svc = Object.assign({}, bs, found);
     svc.advanced = found.advanced || bs.advanced;
+    svc.advanced = normalizeAdvanced(svc.id, svc.advanced);
     /* 迁移：wiki 旧演示映射 → 真实 API 结构（文章列表）；空 API 地址用内置配置补齐 */
     if (svc.id === "wiki") {
       var wm = svc.advanced && svc.advanced.metrics && svc.advanced.metrics[0];
@@ -2012,7 +2022,7 @@ function fillSettings() {
       '<div class="form-row"><label>Header 名（自定义时）</label><input type="text" class="f-header" value="' + esc(svc.headerName) + '" placeholder="X-API-Key"></div>' +
       "</div>" +
       '<div class="form-row"><label>数据映射 JSON（metrics 指标 / list 列表 / todo 待处理提取）</label>' +
-      '<textarea class="f-mapping" rows="12" spellcheck="false">' + esc(JSON.stringify(svc.advanced || {}, null, 2)) + "</textarea></div>" +
+      '<textarea class="f-mapping" rows="12" spellcheck="false">' + esc(JSON.stringify(normalizeAdvanced(svc.id, svc.advanced), null, 2)) + "</textarea></div>" +
       '<div class="btn-row">' +
       '<button class="btn small" data-action="test-conn" data-svc="' + def.id + '">' + ic("refresh", 14) + "测试连接</button>" +
       '<button class="btn small ghost" data-action="reset-mapping" data-svc="' + def.id + '">恢复默认映射</button>' +
@@ -2038,7 +2048,8 @@ function collectSvcFromForm(block, defId) {
   var parsed = JSON.parse(raw); // 交给调用方 try/catch
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(defId + " 的映射必须是 JSON 对象");
   if (parsed.metrics && !Array.isArray(parsed.metrics)) throw new Error(defId + " 的 metrics 必须是数组");
-  next.advanced = parsed;
+  /* 空映射/缺 list 结构不报错也不入库存脏值，静默回退页面内置默认 */
+  next.advanced = normalizeAdvanced(defId, parsed);
   return next;
 }
 function saveSettingsFromForm() {
