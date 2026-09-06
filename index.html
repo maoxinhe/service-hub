@@ -52,6 +52,7 @@ window.WB_ENV = {
     tickets:   { NAME: "工单系统",     URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
     mods:      { NAME: "模组更新平台", URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
     blog:      { NAME: "个人博客",     URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
+    /* Wiki：读接口公开；写接口（新建/编辑/删除）需 Bearer WRITE_KEY —— Worker 版由网关从 D1 注入，无需在此填写；本地模式请在设置中为 Wiki 选 Bearer 并填密钥 */
     wiki:      { NAME: "Wiki",         URL: "https://my-wiki.catkinr-93f.workers.dev", API: "https://my-wiki.catkinr-93f.workers.dev/api/articles", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" }
   }
 };
@@ -267,6 +268,23 @@ window.WB_ENV = {
   .badge.b-green{background:var(--green-bg);color:var(--green)}
   .badge.b-blue{background:var(--blue-bg);color:var(--primary)}
   .badge.b-gray{background:var(--line2);color:var(--text2)}
+  /* Wiki 内容管理 */
+  .wiki-admin{margin-top:16px}
+  .wa-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .wa-head b{font-size:14px}
+  .wa-head .grow{flex:1}
+  .wa-form{display:flex;flex-direction:column;gap:11px;margin-top:8px}
+  .wa-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .wa-label{font-size:12px;color:var(--text2);font-weight:600}
+  .wa-label i{color:var(--red);font-style:normal;margin-left:2px}
+  .wa-input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--card);font-size:16px;font-family:inherit;color:var(--text);resize:vertical}
+  html[data-theme="dark"] .wa-input{background:rgba(255,255,255,.03)}
+  .wa-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-weak)}
+  textarea.wa-input{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.65;min-height:150px}
+  .wa-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+  .btn.danger{background:var(--red-bg);color:var(--red-t)}
+  .btn.danger:active{transform:scale(.97)}
+  @media(max-width:640px){.wa-grid{grid-template-columns:1fr}}
 
   /* ===== 子页 ===== */
   .svc-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:16px;animation:rise .3s ease both}
@@ -651,6 +669,7 @@ var ICONS = {
   mods: '<path d="M21 12a9 9 0 1 1-2.9-6.6"/><path d="M21 3v6h-6"/>',
   blog: '<path d="M4 20l4.5-1L20 7.5a2.1 2.1 0 0 0-3-3L5.5 16 4 20z"/><path d="M13.5 6.5l3 3"/>',
   wiki: '<path d="M4 20V6a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2z"/><path d="M19 18v3H6a2 2 0 0 1-2-2"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
   gear: '<circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-2.9-6.6"/><path d="M21 3v6h-6"/>',
   export: '<path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 19h16"/>',
@@ -765,7 +784,7 @@ var SVC_DEFS = [
   { id: "tickets",   name: "工单系统", icon: "tickets", desc: "用户工单跟踪与响应" },
   { id: "mods",      name: "模组更新平台", icon: "mods", desc: "模组版本审核与发布" },
   { id: "blog",      name: "个人博客", icon: "blog", desc: "文章数据与近期发布" },
-  { id: "wiki",      name: "Wiki", icon: "wiki", desc: "知识库文章与标签检索" }
+  { id: "wiki",      name: "Wiki", icon: "wiki", desc: "知识库文章管理：浏览 + 新建 / 编辑 / 删除" }
 ];
 
 /* 从页面 WB_ENV 变量区构建默认配置 */
@@ -863,7 +882,8 @@ var state = {
   demo: null,        // 本次会话的演示数据
   api: {},           // svcId -> {ok, loading, data, error, ts}（运行时，不持久化）
   view: "overview",
-  todayOpen: true
+  todayOpen: true,
+  wiki: { mode: "new", link: "", form: null }  // wiki 内容管理：mode=new|edit，link=编辑目标，form=表单值（防重渲染丢失）
 };
 var pollTimer = null;
 
@@ -1453,7 +1473,142 @@ function renderService() {
         '<div style="font-size:12px;margin-top:4px">请检查映射中 list.path 是否指向数组字段</div></div>';
     }
   }
+  if (svc.id === "wiki" && svc.baseUrl && !loading) body += wikiAdminHtml(svc, src);
   box.innerHTML = head + body;
+}
+
+/* ---------- Wiki 内容管理（POST/PUT/DELETE 写回 GitHub 仓库，触发 CI 自动部署） ---------- */
+function wikiSvc() {
+  var s = null;
+  state.config.services.forEach(function (x) { if (x.id === "wiki") s = x; });
+  return s;
+}
+function wikiArticles(src) {
+  if (!src || !src.data) return [];
+  var rows = getPath(src.data, "data");
+  return Array.isArray(rows) ? rows : [];
+}
+function wikiFormDefault() {
+  var d = new Date();
+  var p = function (n) { return n < 10 ? "0" + n : "" + n; };
+  return { slug: "", title: "", group: "", tags: "", date: d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()), body: "" };
+}
+/* 纯模板：由 renderService 组合输出，无副作用、不触发其他渲染 */
+function wikiAdminHtml(svc, src) {
+  var w = state.wiki, f = w.form || wikiFormDefault();
+  var arts = wikiArticles(src);
+  var local = RUNTIME.mode !== "server";
+  var head = '<div class="card wiki-admin"><div class="wa-head">' + ic("edit", 16) + "<b>Wiki 内容管理</b>" +
+    '<span class="badge ' + (local ? "b-gray" : "b-green") + '">' + (local ? "本地直连" : "网关写入") + "</span>" +
+    '<span class="grow"></span>' +
+    '<button class="btn small' + (w.mode === "new" ? " primary" : "") + '" data-action="wiki-new">＋ 新建文章</button></div>' +
+    '<div class="note">写操作将提交到 Wiki 仓库并触发自动重新部署；列表为演示数据时请勿执行写操作。' +
+    (local ? "本地模式需在设置中为 Wiki 配置 Bearer 写密钥（Worker 版由服务端注入，无需配置）。" : "") + "</div>";
+  var opts = '<option value="">— 选择要编辑/删除的文章 —</option>';
+  arts.forEach(function (a) {
+    var link = a.link || "";
+    opts += '<option value="' + esc(link) + '"' + (w.link === link ? " selected" : "") + ">" + esc((a.title || link) + (a.date ? "（" + a.date + "）" : "")) + "</option>";
+  });
+  var bodyHtml = '<div class="wa-form">' +
+    '<label class="wa-label">编辑已有文章（选中后可修改 / 删除）</label><select class="wa-input" data-wfield="link">' + opts + "</select>" +
+    (w.mode === "new" ? '<div class="wa-grid"><div><label class="wa-label">路径 slug <i>*</i></label><input class="wa-input" data-wfield="slug" placeholder="如 posts/my-note" value="' + esc(f.slug) + '"></div>' +
+      '<div><label class="wa-label">日期</label><input class="wa-input" type="date" data-wfield="date" value="' + esc(f.date) + '"></div></div>' : "") +
+    '<div class="wa-grid"><div><label class="wa-label">标题</label><input class="wa-input" data-wfield="title" value="' + esc(f.title) + '"></div>' +
+      '<div><label class="wa-label">栏目</label><input class="wa-input" data-wfield="group" placeholder="如 使用指南" value="' + esc(f.group) + '"></div></div>' +
+    '<label class="wa-label">标签（逗号分隔）</label><input class="wa-input" data-wfield="tags" placeholder="教程, 入门" value="' + esc(f.tags) + '">' +
+    '<label class="wa-label">正文 Markdown' + (w.mode === "edit" ? "（留空 = 不修改正文）" : "") + '</label>' +
+    '<textarea class="wa-input" rows="7" data-wfield="body" placeholder="# 标题&#10;&#10;正文…">' + esc(f.body) + "</textarea>" +
+    '<div class="wa-actions">' +
+    '<button class="btn primary" data-action="wiki-submit">' + (w.mode === "edit" ? "保存修改" : "创建文章") + "</button>" +
+    (w.mode === "edit" ? '<button class="btn danger" data-action="wiki-del">删除这篇文章</button><button class="btn ghost" data-action="wiki-cancel">退出编辑</button>' : "") +
+    "</div></div>";
+  return head + bodyHtml + "</div>";
+}
+/* 写请求：server 走网关（服务端注入 WRITE_KEY），local 直连（需本机配置密钥） */
+function wikiWrite(method, path, bodyObj) {
+  var svc = wikiSvc();
+  var body = bodyObj === null ? undefined : JSON.stringify(bodyObj);
+  var p;
+  if (RUNTIME.mode === "server") {
+    p = fetch("api/proxy/wiki" + path, { method: method, headers: apiHeaders(), body: body });
+  } else {
+    if (!svc || svc.authType !== "bearer" || !svc.token) {
+      return Promise.reject(new Error("本地模式需写密钥：设置 → Wiki → 认证选 Bearer 并填入 WRITE_KEY（Worker 版无需配置）"));
+    }
+    var h = buildHeaders(svc);
+    h["Content-Type"] = "application/json";
+    p = fetch(svc.baseUrl.replace(/\/+$/, "") + path, { method: method, headers: h, body: body });
+  }
+  return p.then(function (r) {
+    return r.json().then(function (j) { return { status: r.status, j: j }; });
+  }).then(function (res) {
+    if (res.status >= 400 || !res.j || res.j.code !== 0) throw new Error((res.j && res.j.msg) || "HTTP " + res.status);
+    return res.j;
+  });
+}
+function wikiStartEdit(link) {
+  state.wiki.link = link || "";
+  state.wiki.mode = "edit";
+  if (!link) { state.wiki.form = wikiFormDefault(); refreshAll(); return; }
+  var art = null;
+  wikiArticles(getApiData(wikiSvc())).forEach(function (a) { if ((a.link || "") === link) art = a; });
+  state.wiki.form = {
+    slug: link.replace(/^\/+|\/+$/g, ""),
+    title: art ? (art.title || "") : "",
+    group: art ? (art.group || "") : "",
+    tags: art && Array.isArray(art.tags) ? art.tags.join(", ") : "",
+    date: art ? (art.date || "") : "",
+    body: ""
+  };
+  refreshAll();
+}
+/* 事件层：读取 DOM 表单 → 确认 → 写请求 → 清表单 + 刷新列表 */
+function wikiSubmit() {
+  var f = state.wiki.form || wikiFormDefault();
+  var svc = wikiSvc();
+  if (!svc || !svc.baseUrl) { showToast("请先在设置中接入 Wiki API 地址", "err"); return; }
+  var edit = state.wiki.mode === "edit" && state.wiki.link;
+  if (!edit && !String(f.slug || "").trim()) { showToast("新建文章必须填写 slug（如 posts/my-note）", "err"); return; }
+  var payload = { title: String(f.title || "").trim() };
+  if (!edit) payload.slug = String(f.slug || "").trim();  // POST 新建必填 slug；PUT 按 URL 定位无需 slug
+  if (String(f.body || "").length) payload.body = f.body;
+  if (String(f.group || "").trim()) payload.categories = [f.group.trim()];
+  if (String(f.tags || "").trim()) payload.tags = f.tags.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+  if (String(f.date || "").trim()) payload.date = f.date.trim();
+  var slug = edit ? state.wiki.link.replace(/^\/+|\/+$/g, "") : "";
+  confirmDialog(edit ? "保存修改" : "创建文章",
+    edit ? "将向 Wiki 仓库提交更新（" + (payload.body ? "包含正文覆盖" : "仅元数据") + "），并触发自动重新部署。确定提交？"
+         : "将向 Wiki 仓库新建 docs/" + slug + ".md，并触发自动重新部署。确定创建？",
+    function () {
+      showToast("正在提交，请稍候…");
+      wikiWrite(edit ? "PUT" : "POST", edit ? "/" + slug : "", payload).then(function (j) {
+        state.wiki = { mode: "new", link: "", form: wikiFormDefault() };
+        refreshAll();
+        fetchService("wiki", true);
+        showToast("已提交：" + (j.msg || "成功") + "，CI 部署中", "good");
+      }).catch(function (err) { showToast("提交失败：" + err.message, "err"); });
+    });
+}
+function wikiDelete() {
+  if (state.wiki.mode !== "edit" || !state.wiki.link) { showToast("请先选择要删除的文章", "err"); return; }
+  var slug = state.wiki.link.replace(/^\/+|\/+$/g, "");
+  confirmDialog("删除文章", "将向 Wiki 仓库提交删除 docs/" + slug + ".md，此操作不可撤销。确定删除？", function () {
+    showToast("正在删除…");
+    wikiWrite("DELETE", "/" + slug, null).then(function (j) {
+      state.wiki = { mode: "new", link: "", form: wikiFormDefault() };
+      refreshAll();
+      fetchService("wiki", true);
+      showToast("已删除：" + (j.msg || "成功") + "，CI 部署中", "good");
+    }).catch(function (err) { showToast("删除失败：" + err.message, "err"); });
+  });
+}
+function wikiSyncForm(e) {
+  var el = e.target.closest ? e.target.closest("[data-wfield]") : null;
+  if (!el) return;
+  var field = el.getAttribute("data-wfield");
+  if (field === "link") { wikiStartEdit(el.value); return; }
+  if (!state.wiki.form) state.wiki.form = wikiFormDefault();
+  state.wiki.form[field] = el.value;
 }
 
 /* 统一刷新入口：只调渲染函数，渲染函数之间禁止互调 */
@@ -1753,6 +1908,13 @@ function bindEvents() {
       if (sid) fetchService(sid); else fetchAll();
       return;
     }
+    if (act === "wiki-new" || act === "wiki-cancel") {
+      state.wiki = { mode: "new", link: "", form: wikiFormDefault() };
+      refreshAll();
+      return;
+    }
+    if (act === "wiki-submit") { wikiSubmit(); return; }
+    if (act === "wiki-del") { wikiDelete(); return; }
     if (act === "open-settings") {
       state.config.bannerClosed = true; saveConfig();
       fillSettings();
@@ -1760,6 +1922,9 @@ function bindEvents() {
       return;
     }
   });
+  /* Wiki 内容管理表单：输入实时同步到 state，防止渲染刷新丢值 */
+  $("main").addEventListener("input", wikiSyncForm);
+  $("main").addEventListener("change", wikiSyncForm);
   $("btnTheme").addEventListener("click", cycleTheme);
   $("btnRefresh").addEventListener("click", function () {
     var jobs = state.config.services.filter(function (s) { return s.enabled && s.baseUrl; }).length;
