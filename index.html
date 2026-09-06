@@ -52,7 +52,7 @@ window.WB_ENV = {
     tickets:   { NAME: "工单系统",     URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
     mods:      { NAME: "模组更新平台", URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
     blog:      { NAME: "个人博客",     URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" },
-    wiki:      { NAME: "Wiki",         URL: "", API: "", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" }
+    wiki:      { NAME: "Wiki",         URL: "https://my-wiki.catkinr-93f.workers.dev", API: "https://my-wiki.catkinr-93f.workers.dev/api/articles", AUTH: "none", TOKEN: "", HEADER: "X-API-Key" }
   }
 };
 </script>
@@ -742,17 +742,18 @@ var DEFAULT_MAPPING = {
     ]},
     todo: null
   },
+  /* 真实接口：GET /api/articles → { code, msg, data:[{title,group,link,date,tags[]}], total:N } */
   wiki: {
     metrics: [
-      { label: "页面数", path: "data.stats.pages", unit: "页" },
-      { label: "本周编辑", path: "data.stats.edits_this_week", unit: "次" },
-      { label: "贡献者", path: "data.stats.contributors", unit: "人" }
+      { label: "文章总数", path: "total", unit: "篇" },
+      { label: "最新文章", path: "data[0].title" },
+      { label: "最新发布", path: "data[0].date" }
     ],
-    list: { path: "data.items", columns: [
-      { title: "页面", path: "page" },
-      { title: "编辑者", path: "editor" },
-      { title: "编辑次数", path: "edits", format: "num" },
-      { title: "最近更新", path: "date", format: "time" }
+    list: { path: "data", columns: [
+      { title: "标题", path: "title" },
+      { title: "分组", path: "group" },
+      { title: "标签", path: "tags", format: "badge" },
+      { title: "发布日期", path: "date", format: "time" }
     ]},
     todo: null
   }
@@ -764,7 +765,7 @@ var SVC_DEFS = [
   { id: "tickets",   name: "工单系统", icon: "tickets", desc: "用户工单跟踪与响应" },
   { id: "mods",      name: "模组更新平台", icon: "mods", desc: "模组版本审核与发布" },
   { id: "blog",      name: "个人博客", icon: "blog", desc: "文章数据与近期发布" },
-  { id: "wiki",      name: "Wiki", icon: "wiki", desc: "知识库页面与编辑动态" }
+  { id: "wiki",      name: "Wiki", icon: "wiki", desc: "知识库文章与标签检索" }
 ];
 
 /* 从页面 WB_ENV 变量区构建默认配置 */
@@ -846,11 +847,11 @@ function buildDemoData() {
       { title: "性能调优实录：TPS 从 12 到 19", views: 1547, comments: 26, date: ago(8 * D) },
       { title: "新版本更新公告 v3.2", views: 2301, comments: 41, date: ago(12 * D) }
     ]}},
-    wiki: { data: { stats: { pages: 142, edits_this_week: 23, contributors: 8 }, items: [
-      { page: "模组安装指南", editor: "Admin", edits: 5, date: ago(5 * H) },
-      { page: "常见崩溃排查", editor: "Mod_TEAM", edits: 3, date: ago(1 * D) },
-      { page: "服务器规则", editor: "Admin", edits: 2, date: ago(3 * D) },
-      { page: "API 接口文档", editor: "Dev_Kiro", edits: 7, date: ago(4 * D) }
+    wiki: { data: { code: 0, msg: "ok", total: 4, data: [
+      { title: "模组安装指南", group: "教程", link: "#", date: ago(5 * H), tags: ["教程", "入门"] },
+      { title: "常见崩溃排查", group: "问题排查", link: "#", date: ago(1 * D), tags: ["故障"] },
+      { title: "服务器规则", group: "公告", link: "#", date: ago(3 * D), tags: ["公告", "必读"] },
+      { title: "API 接口文档", group: "开发", link: "#", date: ago(4 * D), tags: ["开发", "API"] }
     ]}}
   };
 }
@@ -896,6 +897,13 @@ function mergeConfig(saved) {
     if (!found) return bs;
     var svc = Object.assign({}, bs, found);
     svc.advanced = found.advanced || bs.advanced;
+    /* 迁移：wiki 旧演示映射 → 真实 API 结构（文章列表）；空 API 地址用内置配置补齐 */
+    if (svc.id === "wiki") {
+      var wm = svc.advanced && svc.advanced.metrics && svc.advanced.metrics[0];
+      if (wm && wm.path === "data.stats.pages") svc.advanced = DEFAULT_MAPPING.wiki;
+      if (!svc.baseUrl && (window.WB_ENV.SERVICES.wiki || {}).API) svc.baseUrl = window.WB_ENV.SERVICES.wiki.API;
+      if (!svc.url && (window.WB_ENV.SERVICES.wiki || {}).URL) svc.url = window.WB_ENV.SERVICES.wiki.URL;
+    }
     return svc;
   });
   if (typeof cfg.demoMode !== "boolean") cfg.demoMode = true;
@@ -1427,7 +1435,7 @@ function renderService() {
           var lab = ' data-label="' + esc(c.title) + '"';
           var cell;
           if (c.format === "num") cell = '<td class="num"' + lab + ">" + esc(fmtNum(v)) + "</td>";
-          else if (c.format === "badge") cell = "<td" + lab + '><span class="badge ' + badgeFor(v) + '">' + esc(v === undefined || v === null || v === "" ? "—" : v) + "</span></td>";
+          else if (c.format === "badge") { var bv = Array.isArray(v) ? v.join("、") : v; cell = "<td" + lab + '><span class="badge ' + badgeFor(bv) + '">' + esc(bv === undefined || bv === null || bv === "" ? "—" : bv) + "</span></td>"; }
           else if (c.format === "time") cell = "<td" + lab + ">" + esc(fmtTime(v)) + "</td>";
           else cell = "<td" + lab + ">" + esc(v === undefined || v === null || v === "" ? "—" : v) + "</td>";
           t += cell;
