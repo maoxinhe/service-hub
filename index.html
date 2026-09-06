@@ -33,9 +33,9 @@ window.WB_ENV = {
   DEMO_MODE: true,              // true=未接入 API 的服务显示演示数据
   POLL_MINUTES: 0,              // 全局自动刷新间隔(分钟)，0=关闭
   LOGIN: {                      // 登录门禁（前端口令级防护，防路人误入，非加密级安全）
-    USER: "admin",                                       // 登录账号
+    USER: "maoxinhe",                                    // 登录账号
     SALT: "wb-hub-2026-v1",                              // 哈希盐值
-    PASS_SHA256: "c67607a2c7a290168265269012f7a9b9ce683e219c7ed551c65424967ef6520f" // sha256(SALT+密码)
+    PASS_SHA256: "12f0a1de9d4b255513f110f71a7be27f7dcc191e2a0d2f38d1ceb8052a7e050c" // sha256(SALT+密码)
   },
   /* 云同步：把工作台配置与待办存到本仓库 data/state.json（GitHub Contents API）。
      ⚠️ 同步 Token 不要写在这里！在页面「设置 → 云同步」中填写，仅存于各设备浏览器本地 */
