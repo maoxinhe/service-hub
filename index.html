@@ -2041,8 +2041,12 @@ function collectSvcFromForm(block, defId) {
   next.name = block.querySelector(".f-name").value.trim() || svc.name;
   next.url = block.querySelector(".f-url").value.trim();
   next.baseUrl = block.querySelector(".f-api").value.trim();
-  next.authType = block.querySelector(".f-auth").value;
-  next.token = block.querySelector(".f-token").value.trim();
+  var formAuth = block.querySelector(".f-auth").value;
+  var formTok = block.querySelector(".f-token").value.trim();
+  /* 保护：云端模式下凭据由 D1 保管，表单里的认证/Token 是空的占位。
+     若用户未在表单填 Token，则保留原配置（避免把云端已配好的 Bearer 抹成 none → 401）。 */
+  if (!formTok && svc.token) { next.authType = svc.authType; next.token = svc.token; }
+  else { next.authType = formAuth; next.token = formTok; }
   next.headerName = block.querySelector(".f-header").value.trim() || "X-API-Key";
   var raw = block.querySelector(".f-mapping").value;
   var parsed = JSON.parse(raw); // 交给调用方 try/catch
@@ -2087,9 +2091,16 @@ function applyEnvConfig() {
   state.config.pollMinutes = envCfg.pollMinutes;
   state.config.services = state.config.services.map(function (svc, i) {
     var e = envCfg.services[i];
+    if (!e) return svc;
     return Object.assign({}, svc, {
       name: e.name, url: e.url, baseUrl: e.baseUrl,
-      authType: e.authType, token: e.token, headerName: e.headerName
+      /* 认证方式与 Token 不由页面内置配置覆盖：
+         Worker 版凭据存于 D1（网关注入），页面 AUTH/TOKEN 恒为空，
+         若覆盖会把云端已配好的 Bearer 抹成 none，导致管理接口 401。
+         仅当页面内置配置确实带了非空 Token 时才覆盖（本地模式兼容）。 */
+      authType: (e.token ? e.authType : svc.authType),
+      token: (e.token || svc.token),
+      headerName: e.headerName
     });
   });
   saveConfig();
@@ -2097,7 +2108,7 @@ function applyEnvConfig() {
   fillSettings();
   refreshAll();
   fetchAll();
-  showToast("已应用页面内置 API 配置", "good");
+  showToast("已应用页面内置 API 配置（云端凭据保持不变）", "good");
 }
 
 function testConnection(defId) {
